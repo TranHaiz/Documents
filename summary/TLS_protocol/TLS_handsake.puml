@@ -1,0 +1,64 @@
+@startuml TLS_handshake
+title Quy trình TLS 1.3 Handshake (RFC 8446)
+
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 60
+skinparam BoxPadding 20
+
+participant "Client" as C
+participant "Server" as S
+
+== Giai đoạn 1: Trao đổi khóa (Key Exchange) — chưa mã hóa ==
+
+C -> S : ClientHello\n+ key_share (DH public key của client)\n+ signature_algorithms (chữ ký client xác minh được)\n+ supported_versions, cipher_suites, SNI...
+note right of C
+  Client gửi trước phần DH của mình
+  và các tham số mã hóa nó hỗ trợ.
+end note
+
+S -> C : ServerHello\n+ key_share (DH public key của server)
+note left of S
+  Server chọn tham số và gửi phần DH của mình.
+  **Từ đây trở đi hai bên đã có bí mật chung**
+  => mọi thông điệp sau đều được MÃ HÓA.
+  Nhưng vẫn CHƯA biết server là ai!
+end note
+
+== Giai đoạn 2: Tham số phiên (Server Parameters) — đã mã hóa ==
+
+S -> C : {EncryptedExtensions}\n(các extension không liên quan đến khóa)
+S -> C : {CertificateRequest*}\n(chỉ gửi nếu cần xác thực client — mutual TLS)
+
+== Giai đoạn 3: Xác thực (Authentication) — đã mã hóa ==
+
+S -> C : {Certificate}\nchuỗi chứng chỉ của server
+note left of S : "Tôi là example.com" — nhưng chứng chỉ\nlà thông tin công khai, chưa chứng minh gì
+S -> C : {CertificateVerify}\nchữ ký bằng private key\ntrên hash toàn bộ handshake
+note left of S : "Tôi thật sự nắm private key" — chữ ký gắn với\nchính handshake này nên không thể replay
+S -> C : {Finished}\nHMAC trên toàn bộ handshake
+note left of S : "Không có gì bị sửa đổi trên đường truyền"\n(chống downgrade attack)
+
+C -> C : Xác minh chuỗi chứng chỉ (đến root CA tin cậy),\nkiểm tra chữ ký CertificateVerify và Finished
+
+alt Mutual TLS (server đã gửi CertificateRequest)
+  C -> S : {Certificate}\n(rỗng nếu client không có chứng chỉ phù hợp)
+  C -> S : {CertificateVerify}\n(chỉ gửi nếu Certificate không rỗng)
+end
+
+C -> S : {Finished}\nHMAC phía client
+
+== Hoàn tất — truyền dữ liệu ==
+
+C <-> S : [Application Data]\nmã hóa bằng application traffic keys
+
+note over C, S
+  **Tóm tắt 3 câu hỏi mà handshake trả lời:**
+  1. Certificate        — "Bạn là ai?"
+  2. CertificateVerify  — "Chứng minh đi?" (nắm private key)
+  3. Finished           — "Cuộc nói chuyện có bị sửa không?"
+
+  { } = mã hóa bằng handshake keys | [ ] = mã hóa bằng application keys
+  *   = tùy chọn, không phải lúc nào cũng gửi
+end note
+
+@enduml
